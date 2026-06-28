@@ -26,34 +26,20 @@ class RecordUpdate(BaseModel):
 
 def record_row_to_dict(row):
     return {
-        "id": row["id"],
-        "record_id": row["record_id"],
-        "zone_id": row["zone_id"],
-        "name": row["name"],
-        "type": row["type"],
-        "value": row["value"],
-        "ttl": row["ttl"],
-        "routing_policy": row["routing_policy"],
-        "comment": row["comment"],
-        "created_at": row["created_at"],
-        "updated_at": row["updated_at"],
+        "id": row["id"], "record_id": row["record_id"], "zone_id": row["zone_id"],
+        "name": row["name"], "type": row["type"], "value": row["value"],
+        "ttl": row["ttl"], "routing_policy": row["routing_policy"],
+        "comment": row["comment"], "created_at": row["created_at"], "updated_at": row["updated_at"],
     }
 
 def check_zone_ownership(conn, zone_id, user_id):
-    row = conn.execute(
-        "SELECT id FROM hosted_zones WHERE zone_id=? AND user_id=?",
-        (zone_id, user_id)
-    ).fetchone()
+    row = conn.execute("SELECT id FROM hosted_zones WHERE zone_id=? AND user_id=?", (zone_id, user_id)).fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Hosted zone not found")
 
 def update_zone_record_count(conn, zone_id):
-    count = conn.execute(
-        "SELECT COUNT(*) FROM dns_records WHERE zone_id=?", (zone_id,)
-    ).fetchone()[0]
-    conn.execute(
-        "UPDATE hosted_zones SET record_count=? WHERE zone_id=?", (count, zone_id)
-    )
+    count = conn.execute("SELECT COUNT(*) FROM dns_records WHERE zone_id=?", (zone_id,)).fetchone()[0]
+    conn.execute("UPDATE hosted_zones SET record_count=? WHERE zone_id=?", (count, zone_id))
 
 @router.get("/{zone_id}/records")
 def list_records(
@@ -81,16 +67,8 @@ def list_records(
             f"SELECT * FROM dns_records WHERE {where} ORDER BY type, name LIMIT ? OFFSET ?",
             params + [limit, offset]
         ).fetchall()
-        total = conn.execute(
-            f"SELECT COUNT(*) FROM dns_records WHERE {where}", params
-        ).fetchone()[0]
-        return {
-            "records": [record_row_to_dict(r) for r in rows],
-            "total": total,
-            "page": page,
-            "limit": limit,
-            "pages": (total + limit - 1) // limit
-        }
+        total = conn.execute(f"SELECT COUNT(*) FROM dns_records WHERE {where}", params).fetchone()[0]
+        return {"records": [record_row_to_dict(r) for r in rows], "total": total, "page": page, "limit": limit, "pages": (total + limit - 1) // limit}
     finally:
         conn.close()
 
@@ -100,7 +78,7 @@ def create_record(zone_id: str, body: RecordCreate, current_user=Depends(get_cur
     try:
         check_zone_ownership(conn, zone_id, current_user["user_id"])
         if body.type.upper() not in VALID_TYPES:
-            raise HTTPException(status_code=400, detail=f"Invalid record type. Must be one of: {', '.join(VALID_TYPES)}")
+            raise HTTPException(status_code=400, detail="Invalid record type")
         record_id = "RR" + uuid.uuid4().hex[:10].upper()
         conn.execute(
             "INSERT INTO dns_records (record_id, zone_id, name, type, value, ttl, routing_policy, comment) VALUES (?,?,?,?,?,?,?,?)",
@@ -113,47 +91,20 @@ def create_record(zone_id: str, body: RecordCreate, current_user=Depends(get_cur
     finally:
         conn.close()
 
-@router.get("/{zone_id}/records/{record_id}")
-def get_record(zone_id: str, record_id: str, current_user=Depends(get_current_user)):
-    conn = get_connection()
-    try:
-        check_zone_ownership(conn, zone_id, current_user["user_id"])
-        row = conn.execute(
-            "SELECT * FROM dns_records WHERE record_id=? AND zone_id=?",
-            (record_id, zone_id)
-        ).fetchone()
-        if not row:
-            raise HTTPException(status_code=404, detail="Record not found")
-        return record_row_to_dict(row)
-    finally:
-        conn.close()
-
 @router.put("/{zone_id}/records/{record_id}")
 def update_record(zone_id: str, record_id: str, body: RecordUpdate, current_user=Depends(get_current_user)):
     conn = get_connection()
     try:
         check_zone_ownership(conn, zone_id, current_user["user_id"])
-        row = conn.execute(
-            "SELECT * FROM dns_records WHERE record_id=? AND zone_id=?",
-            (record_id, zone_id)
-        ).fetchone()
+        row = conn.execute("SELECT * FROM dns_records WHERE record_id=? AND zone_id=?", (record_id, zone_id)).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Record not found")
-        updates = {}
-        for field in ["name", "value", "ttl", "routing_policy", "comment"]:
-            val = getattr(body, field)
-            if val is not None:
-                updates[field] = val
+        updates = {f: getattr(body, f) for f in ["name","value","ttl","routing_policy","comment"] if getattr(body, f) is not None}
         if updates:
             set_clause = ", ".join(f"{k}=?" for k in updates)
-            values = list(updates.values()) + [record_id]
-            conn.execute(
-                f"UPDATE dns_records SET {set_clause}, updated_at=CURRENT_TIMESTAMP WHERE record_id=?",
-                values
-            )
+            conn.execute(f"UPDATE dns_records SET {set_clause}, updated_at=CURRENT_TIMESTAMP WHERE record_id=?", list(updates.values()) + [record_id])
             conn.commit()
-        updated = conn.execute("SELECT * FROM dns_records WHERE record_id=?", (record_id,)).fetchone()
-        return record_row_to_dict(updated)
+        return record_row_to_dict(conn.execute("SELECT * FROM dns_records WHERE record_id=?", (record_id,)).fetchone())
     finally:
         conn.close()
 
@@ -162,10 +113,7 @@ def delete_record(zone_id: str, record_id: str, current_user=Depends(get_current
     conn = get_connection()
     try:
         check_zone_ownership(conn, zone_id, current_user["user_id"])
-        row = conn.execute(
-            "SELECT * FROM dns_records WHERE record_id=? AND zone_id=?",
-            (record_id, zone_id)
-        ).fetchone()
+        row = conn.execute("SELECT * FROM dns_records WHERE record_id=? AND zone_id=?", (record_id, zone_id)).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Record not found")
         conn.execute("DELETE FROM dns_records WHERE record_id=?", (record_id,))

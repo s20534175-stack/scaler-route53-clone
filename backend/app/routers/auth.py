@@ -1,5 +1,6 @@
-from fastapi import APIRouter, HTTPException, status, Depends
-from pydantic import BaseModel, EmailStr
+from fastapi import APIRouter, HTTPException, Depends
+from pydantic import BaseModel
+from typing import Optional
 from app.database.db import get_connection
 from app.utils.auth_utils import hash_password, verify_password, create_token
 from app.utils.dependencies import get_current_user

@@ -3,7 +3,7 @@ from pydantic import BaseModel
 from typing import Optional
 from app.database.db import get_connection
 from app.utils.dependencies import get_current_user
-import uuid, time
+import uuid
 
 router = APIRouter()
 
@@ -61,9 +61,7 @@ def list_zones(
             ).fetchone()[0]
         return {
             "zones": [zone_row_to_dict(r) for r in rows],
-            "total": total,
-            "page": page,
-            "limit": limit,
+            "total": total, "page": page, "limit": limit,
             "pages": (total + limit - 1) // limit
         }
     finally:
@@ -85,24 +83,21 @@ def create_zone(body: ZoneCreate, current_user=Depends(get_current_user)):
             "INSERT INTO hosted_zones (zone_id, name, comment, type, user_id) VALUES (?,?,?,?,?)",
             (zone_id, name, body.comment, body.type, current_user["user_id"])
         )
-        # Auto-add NS and SOA records
         ns_id = "RR" + uuid.uuid4().hex[:10].upper()
         soa_id = "RR" + uuid.uuid4().hex[:10].upper()
         conn.execute(
             "INSERT INTO dns_records (record_id, zone_id, name, type, value, ttl) VALUES (?,?,?,?,?,?)",
             (ns_id, zone_id, name, "NS",
-             f"ns-{uuid.uuid4().hex[:4]}.awsdns-01.com.\nns-{uuid.uuid4().hex[:4]}.awsdns-02.org.\nns-{uuid.uuid4().hex[:4]}.awsdns-03.net.\nns-{uuid.uuid4().hex[:4]}.awsdns-04.co.uk.",
+             "ns-100.awsdns-01.com.\nns-200.awsdns-02.org.\nns-300.awsdns-03.net.\nns-400.awsdns-04.co.uk.",
              172800)
         )
         conn.execute(
             "INSERT INTO dns_records (record_id, zone_id, name, type, value, ttl) VALUES (?,?,?,?,?,?)",
             (soa_id, zone_id, name, "SOA",
-             f"ns-{uuid.uuid4().hex[:4]}.awsdns-01.com. awsdns-hostmaster.amazon.com. 1 7200 900 1209600 86400",
+             "ns-100.awsdns-01.com. awsdns-hostmaster.amazon.com. 1 7200 900 1209600 86400",
              900)
         )
-        conn.execute(
-            "UPDATE hosted_zones SET record_count=2 WHERE zone_id=?", (zone_id,)
-        )
+        conn.execute("UPDATE hosted_zones SET record_count=2 WHERE zone_id=?", (zone_id,))
         conn.commit()
         row = conn.execute("SELECT * FROM hosted_zones WHERE zone_id=?", (zone_id,)).fetchone()
         return zone_row_to_dict(row)
